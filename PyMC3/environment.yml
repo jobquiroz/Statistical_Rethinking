@@ -1,0 +1,14 @@
+name rethinking-pymc3
+channels
+- defaults
+dependencies
+  - jupyter
+  - seaborn
+  - mkl-service
+  - pip
+  - pip
+     - watermark
+     - git+gitgithub.comarviz-devsarviz.git@main
+     - git+gitgithub.compymc-devspymc3.git@main
+     - causalgraphicalmodels
+     - daft
