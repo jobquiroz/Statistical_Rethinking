@@ -1,0 +1,220 @@
+
+# Solving the vampirism detection problem.
+
+Pr_Positive_Vampire <-0.95
+Pr_Positive_Mortal <-0.01
+Pr_Vampire <-0.001
+
+Pr_Positive <- Pr_Positive_Vampire*Pr_Vampire+ Pr_Positive_Mortal *(1-Pr_Vampire) 
+
+( Pr_Vampire_Positive<-Pr_Positive_Vampire*Pr_Vampire/Pr_Positive)
+#  8.7% chance of actually being a vampire.
+
+
+# Sampling from a grid-approximate posterior
+# A reminder for how to compute the posterior for the globe tossing model,
+# using grid approximation.
+# The posterior here means the probability of p conditional on the data.
+
+p_grid <- seq(from = 0, to = 1, length.out = 1000)   # Some possible values for p.
+prob_p <- rep(1, 1000)  # Uniform prior for p. Every "possible value" above has 
+                        # the same probability
+prob_data <- dbinom(6, size = 9, prob = p_grid)  # Probability for getting 
+                                                 # 6 out of 9, with p = some value in grid
+# Bayes
+posterior <- prob_data * prob_p
+posterior <- posterior / sum(posterior)
+
+# Taking 10,000 samples from the posterior (with replacement)
+# Individual values of "p" (in p_grid) will appear in our samples
+# in proportion to the posterior plausibility of each value.
+samples <- sample(p_grid, prob = posterior, size = 1e4, replace = TRUE)
+plot(samples)
+
+library(rethinking)
+
+# Histogram
+dens(samples)
+
+# add up posterior probability where p < 0.5
+sum(posterior [p_grid < 0.5])
+# About 17% of the posterior probability is below 0.5-
+# However, we'll rarely have a big set of points in the grid to sum over.
+
+# Let's see how to perform the same calculation, using samples from the posterior.
+# All you have to do is add up all the samples below 0.5, but also 
+# divide the resulting coount by the total number of samples.
+# In other words, find the frequency of parameter values below 0.5:
+
+sum(samples < 0.5) / 1e4
+# The answer is near to the grid approximation.
+
+# Using the same approach you can ask how much posterior probability lies 
+# between 0.5 and 0.75
+sum (samples > 0.5 & samples < 0.75) / 1e4
+
+# Quantiles
+quantile(samples, 0.8)
+quantile(samples, c(0.1, 0.9))
+
+# Percentiles Intervals
+# The do a good job of communicating the shape of a distribution,
+# as long as the distribution isn't too asymmetrical.
+PI(samples, prob = 0.5)
+
+# Using an asymetrical distribution
+p_grid <- seq(from = 0, to = 1, length.out = 1000)
+prob_p <- rep(1, 1000)
+prob_data <- dbinom(3, size = 3, prob = p_grid)  
+posterior <- prob_data * prob_p
+posterior <- posterior / sum(posterior)
+samples <- sample(p_grid, prob = posterior, size = 1e4, replace = TRUE)
+
+plot(samples)
+dens(samples)
+
+PI(samples, prob = 0.5)
+# This last interval assigns 25% of the probability mass above and below the inverval.
+# So it provides the central 50% probability. But in this example,
+# it ends up excluding the most probable parameter values, near p = 1. 
+# The percentile interval is misleading.
+
+# The HDPI: Highest posterior density interval, is the narrowest interval
+# containing the specified probability mass. 
+# The interval that best represents the parameter values most consistent with
+# the data then the densest interval does the job.
+HPDI(samples, prob = 0.5)
+
+
+# HPDI is more computationally intensive and suffers from greater simmulation variance
+# -> it is sensitive to how many samples you draw from the posterior.
+
+
+# Point estimates.
+# Given the entire posterior distribution, what value should you report??
+
+# Three alternative point estimates:
+# Maximimum a posterior (MAP):
+p_grid[which.max(posterior)]
+
+# If you instead have samples from the posterior, you can still approximate the
+# same point:
+chainmode( samples, adj = 0.01)
+
+# Why not report the posterior mean or median??
+mean(samples)
+median(samples)
+
+
+# One way to go beyind using the entire posterior as the estimate is to choose
+# a "loss function". 
+# Calculating expected loss for any given decisions means using the posterior to 
+# average over our uncertainty in the true value. 
+
+# For the example in the book, the expected loss will be:
+sum(posterior * abs(0.5 - p_grid))
+
+# The code computes the weighted average loss, where each loss is weighted by 
+# its corresponding posterior probability.
+# A trick for repeating this calculation for every possible decision is:
+loss <- sapply(p_grid, function(d) sum(posterior * abs(d - p_grid)))
+
+# Loss contains a lost of loss values, one for each possible decision, corresponding
+# to values in p_grid.
+# From here, it's easy to find the parameter value that minimizes the loss:
+p_grid[which.min(loss)]
+
+# And this is actually the posterior median!
+
+
+# #Sampling to simulate prediction.
+
+# Dummy data for the water on earth case:
+
+# Suppose N = 2, there are three possible overvations: 0 water, 1 water, 2 water-
+# Let's use p = 0.7 which.
+dbinom (0:2, size = 2, prob = 0.7)
+
+# Now we are going to simulate observations, using these probabilities. 
+# This is done by sampling fromt he distribution just described above.
+# You could use sample to do this, but R provides convenient sampling
+# functions for all the ordinary probability distributions.:
+
+# A single dummy data:
+rbinom(1, size = 2, prob = 0.7) # 'r' stands for 'random'
+
+# More than one:
+rbinom(10, size = 2, prob = 0.7)
+
+# Let's generate 100,000 dummy observations, just to verify that each value
+# appears in proportion to its likelihood:
+dummy_w <- rbinom(1e5, size = 2, prob = 0.7)
+table(dummy_w) / 1e5
+
+# Let's now simmulate 9 tosses:
+dummy_w <- rbinom(1e5, size = 9, prob = 0.7)
+table(dummy_w) / 1e5
+simplehist(dummy_w, xlab = "dummy water count")
+
+# Most of the time, the expected observation does not contain water in its true
+# proportion... That's the nature of observation.
+
+
+# # Model checking
+# 1) ensuring the model fitting worked correctly
+# 2) evaluating the adequacy of a model for some purpose.
+
+# The implied predictions of the model are uncertain in two ways, and it's
+# important to be aware of both.
+
+# First, there is observation uncertainty. For any unique values of the parameter p, 
+# there is a unique implied pattern of observation that the model expects... There
+# is uncertainty in the predicted observations, because even if you know p with 
+# certainty, you won't know the next globe toss with certainty.
+
+# Second, there is uncertainty about p. The posterior distribution over p
+# embodies this uncertainty. And since there is uncertainty about p, there is 
+# uncertainty about everything depending upon p. 
+
+# We'd like to propagate the parameter uncertainty - carry it forward - as we
+# evaluate the implied predictions. All that is required is averaging over
+# the posterior density for p, while computing the predictions. 
+# For each possible value of "p" there is an implied distribution of outcomes.
+# So if you ware to compute the sampling distribution of outcomes at each 
+# value of p, then you could average all of these prediction distribution 
+# together, using the posterior probabilities of each value of p,
+# to get a POSTERIOR PREDICTIVE DISTRIBUTION.
+
+# The resulting distribution is for predictions, but it incorporates all of 
+# the uncertainty embodied in the posterior distribution for the parameter p.
+# As a result, it is HONEST.
+# Throwing away the uncertainty about the parameters leads to overconfidence in
+# the model.
+
+# To simulate predicted observations for a single value of p, say p = 0.6,
+# you can use rbinom to generate random binomial samples.
+w <- rbinom(1e4, size = 9, prob = 0.6)
+
+# This generates 10,000 simulated prediction of 9 globe tosses
+
+simplehist(w)
+
+# All you need to propagate parameter uncertainty into these predictions
+# is replace the value 0.6 with samples from the posterior:
+w <- rbinom( 1e4, size = 9, prob = samples)
+
+# 'samples' is the same list of random samples from the posterior distribution
+# used previously. 
+# For each sampled value, a random binomial observation is generated. 
+# Since the sampled value appear in proportion to the posterior
+# probabilities, the resulting simulated observations are averaged over the posterior.
+
+simplehist(w)
+
+
+
+
+
+
+
+
